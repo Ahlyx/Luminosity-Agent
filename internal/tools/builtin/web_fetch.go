@@ -36,7 +36,7 @@ func (t WebFetchTool) Execute(params map[string]string) (string, error) {
 		return "Error: " + err.Error(), nil
 	}
 	text := stripHTML(string(body))
-	return tools.Truncate(text, 500), nil
+	return tools.Truncate(text, 2000), nil
 }
 
 var tagRegex = regexp.MustCompile(`<[^>]*>`)

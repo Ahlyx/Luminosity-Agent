@@ -198,6 +198,22 @@ func (m Model) Init() tea.Cmd {
 	return textarea.Blink
 }
 
+// renderLines builds viewport content from current state — pure function on value
+func (m Model) renderLines() string {
+	var lines []string
+	if len(m.messages) == 0 {
+		lines = append(lines, RenderBanner(m.width-4))
+	}
+	for _, msg := range m.messages {
+		lines = append(lines, msg.Render(m.width-4))
+		lines = append(lines, "")
+	}
+	if m.thinking {
+		lines = append(lines, lipgloss.NewStyle().Foreground(gold).Render("  ✦  thinking..."))
+	}
+	return strings.Join(lines, "\n")
+}
+
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 	var cmd tea.Cmd
@@ -218,6 +234,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.viewport.Width = m.width - 4
 			m.viewport.Height = vpHeight
+			m.viewport.SetContent(m.renderLines())
 		}
 		m.input.SetWidth(m.width - 6)
 
@@ -238,7 +255,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.messages = append(m.messages, Message{Kind: k, Content: msg.Text})
 			}
 		}
-		m.refreshViewport()
+		if m.ready {
+			m.viewport.SetContent(m.renderLines())
+			m.viewport.GotoBottom()
+		}
 
 	case SubmitMsg:
 		if m.inputCh != nil {
@@ -248,7 +268,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.thinking = true
-		m.refreshViewport()
+		if m.ready {
+			m.viewport.SetContent(m.renderLines())
+			m.viewport.GotoBottom()
+		}
 
 	case tea.KeyMsg:
 		switch msg.Type {
@@ -261,7 +284,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.input.Reset()
 			m.messages = append(m.messages, Message{Kind: KindUser, Content: val})
-			m.refreshViewport()
+			if m.ready {
+				m.viewport.SetContent(m.renderLines())
+				m.viewport.GotoBottom()
+			}
 			return m, func() tea.Msg { return SubmitMsg{Input: val} }
 		}
 	}
@@ -272,25 +298,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	cmds = append(cmds, cmd)
 
 	return m, tea.Batch(cmds...)
-}
-
-func (m *Model) refreshViewport() {
-	if !m.ready {
-		return
-	}
-	var lines []string
-	if len(m.messages) == 0 {
-		lines = append(lines, RenderBanner(m.width-4))
-	}
-	for _, msg := range m.messages {
-		lines = append(lines, msg.Render(m.width-4))
-		lines = append(lines, "")
-	}
-	if m.thinking {
-		lines = append(lines, lipgloss.NewStyle().Foreground(gold).Render("  ✦  thinking..."))
-	}
-	m.viewport.SetContent(strings.Join(lines, "\n"))
-	m.viewport.GotoBottom()
 }
 
 func (m Model) View() string {
@@ -317,10 +324,12 @@ func (m Model) View() string {
 	}
 	inputBox := borderStyle.Width(m.width - 4).Render(m.input.View())
 
+	vpH := m.height - lipgloss.Height(statusBar) - lipgloss.Height(inputBox) - 4
+
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
 		statusBar,
-		outerBorder.Width(m.width-4).Height(m.height-9).Render(m.viewport.View()),
+		outerBorder.Width(m.width-4).Height(vpH).Render(m.viewport.View()),
 		inputBox,
 	)
 }

@@ -38,7 +38,7 @@ func main() {
 	registry.Register(builtin.ReadNoteTool{})
 	registry.Register(&builtin.ShellTool{TrustMode: trustMode})
 
-	inputCh := make(chan string, 1)
+	inputCh := make(chan string, 10)
 
 	m := tui.New(inputCh)
 	p := tea.NewProgram(m, tea.WithAltScreen())

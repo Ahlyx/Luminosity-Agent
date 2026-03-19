@@ -148,44 +148,65 @@ func (a *HeadlessAgent) handleUserMessage(input string) error {
 
 	messages := a.ctxMgr.BuildMessages(a.systemText, a.memory.InjectionMessage(), a.history)
 
-	// Accumulate streaming tokens into a single assistant message
 	var buf strings.Builder
 	resp, err := a.lm.StreamChat(messages, a.cfg.Context.ResponseReserve, func(tok string) {
 		buf.WriteString(tok)
 	})
 
-	// Send the full response as one message (avoids flickering in TUI)
 	if buf.Len() > 0 {
 		a.output(tui.KindAssistant, strings.TrimSpace(buf.String()))
 	}
-	a.output(tui.KindThinkingStop, "")
 
 	if err != nil {
+		a.output(tui.KindThinkingStop, "")
 		a.output(tui.KindError, err.Error())
 		return nil
 	}
 
 	a.history = append(a.history, client.Message{Role: "assistant", Content: resp})
-	if err := a.memory.Save(); err != nil {
-		return err
-	}
+	a.memory.Save()
 
 	call, ok := a.executor.FindFirstToolCall(resp)
 	if !ok {
+		a.output(tui.KindThinkingStop, "")
 		return nil
 	}
 
+	// Execute tool
 	out, execErr := a.executor.Execute(call)
 	if execErr != nil {
 		out = "Error: " + execErr.Error()
 	}
-	out = tools.Truncate(out, 500)
+	out = tools.Truncate(out, 1500)
 	toolResult := map[string]string{"tool_result": call.Name, "output": out}
 	b, _ := json.Marshal(toolResult)
 	msg := string(b)
 	a.history = append(a.history, client.Message{Role: "user", Content: msg})
-	a.output(tui.KindTool, fmt.Sprintf("%s → %s", call.Name, out))
+	a.output(tui.KindTool, fmt.Sprintf("%s → %s", call.Name, out[:min(len(out), 80)]))
+
+	// Second LM call to process the tool result
+	messages2 := a.ctxMgr.BuildMessages(a.systemText, a.memory.InjectionMessage(), a.history)
+	var buf2 strings.Builder
+	resp2, err2 := a.lm.StreamChat(messages2, a.cfg.Context.ResponseReserve, func(tok string) {
+		buf2.WriteString(tok)
+	})
+	if buf2.Len() > 0 {
+		a.output(tui.KindAssistant, strings.TrimSpace(buf2.String()))
+	}
+	a.output(tui.KindThinkingStop, "")
+	if err2 != nil {
+		a.output(tui.KindError, err2.Error())
+		return nil
+	}
+	a.history = append(a.history, client.Message{Role: "assistant", Content: resp2})
 	return a.memory.Save()
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func (a *HeadlessAgent) summarizeTurns(turns []client.Message) string {

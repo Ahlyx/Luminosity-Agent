@@ -1,0 +1,18 @@
+lmstudio:
+  base_url: "http://192.168.189.1:1234"
+  model: "qwen3.5-4b"
+  timeout_seconds: 120
+
+context:
+  max_tokens: 8192
+  system_budget: 400
+  memory_budget: 600
+  response_reserve: 1024
+
+memory:
+  path: "~/.luminosity/memory.json"
+  max_facts: 50
+  auto_summarize: true
+
+tools:
+  trust_mode: false

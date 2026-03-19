@@ -1,19 +1,19 @@
 package main
 
 import (
-	"bufio"
 	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/ahlyx/luminosity-agent/config"
 	"github.com/ahlyx/luminosity-agent/internal/agent"
 	"github.com/ahlyx/luminosity-agent/internal/client"
 	"github.com/ahlyx/luminosity-agent/internal/memory"
 	"github.com/ahlyx/luminosity-agent/internal/tools"
 	"github.com/ahlyx/luminosity-agent/internal/tools/builtin"
-	"github.com/chzyer/readline"
+	"github.com/ahlyx/luminosity-agent/internal/tui"
 )
 
 func main() {
@@ -32,23 +32,49 @@ func main() {
 	lm := client.New(cfg.LMStudio.BaseURL, cfg.LMStudio.Model, cfg.LMStudio.TimeoutSeconds)
 	mem := memory.NewManager(cfg.Memory.Path, cfg.Memory.MaxFacts)
 
-	rl, err := readline.NewEx(&readline.Config{Prompt: "> "})
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to start readline: %v\n", err)
-		os.Exit(1)
-	}
-	defer rl.Close()
-
 	registry := tools.NewRegistry()
 	registry.Register(builtin.WebFetchTool{})
 	registry.Register(builtin.WriteNoteTool{})
 	registry.Register(builtin.ReadNoteTool{})
-	registry.Register(&builtin.ShellTool{TrustMode: trustMode, Input: bufio.NewReader(os.Stdin)})
+	registry.Register(&builtin.ShellTool{TrustMode: trustMode})
 
-	a := agent.New(cfg, lm, mem, registry, rl, trustMode)
-	if err := a.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "Agent exited with error: %v\n", err)
+	inputCh := make(chan string, 1)
+
+	m := tui.New(inputCh)
+	p := tea.NewProgram(m, tea.WithAltScreen())
+
+	go runAgent(cfg, lm, mem, registry, trustMode, inputCh, p)
+
+	if _, err := p.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "TUI error: %v\n", err)
 		os.Exit(1)
+	}
+}
+
+func runAgent(
+	cfg config.Config,
+	lm *client.LMStudioClient,
+	mem *memory.Manager,
+	registry *tools.Registry,
+	trustMode bool,
+	inputCh <-chan string,
+	p *tea.Program,
+) {
+	corrupted, err := mem.Load()
+	if err != nil {
+		p.Send(tui.AgentMsg{Kind: tui.KindError, Text: "Failed to load memory: " + err.Error()})
+		return
+	}
+	if corrupted {
+		p.Send(tui.AgentMsg{Kind: tui.KindSystem, Text: "Memory file corrupted, starting fresh."})
+	}
+
+	a := agent.NewHeadless(cfg, lm, mem, registry, trustMode, func(kind tui.MsgKind, text string) {
+		p.Send(tui.AgentMsg{Kind: kind, Text: text})
+	})
+
+	for input := range inputCh {
+		a.Handle(input)
 	}
 }
 

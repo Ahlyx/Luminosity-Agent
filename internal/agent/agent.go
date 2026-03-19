@@ -1,11 +1,12 @@
 package agent
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
+	"bufio"
+	"os"
 
 	"github.com/ahlyx/luminosity-agent/config"
 	"github.com/ahlyx/luminosity-agent/internal/client"
@@ -83,6 +84,9 @@ func (a *Agent) Run() error {
 }
 
 func (a *Agent) handleSlash(line string) (bool, error) {
+	if strings.HasPrefix(line, "/remember") {
+		return false, a.runRemember()
+	}
 	switch line {
 	case "/help":
 		for _, t := range a.registry.List() {
@@ -112,8 +116,6 @@ func (a *Agent) handleSlash(line string) (bool, error) {
 		}
 		fmt.Println("Conversation and memory reset.")
 		return false, nil
-	case "/remember":
-		return false, a.runRemember()
 	case "/quit":
 		return true, nil
 	default:
@@ -191,11 +193,9 @@ func (a *Agent) summarizeTurns(turns []client.Message) string {
 func (a *Agent) runRemember() error {
 	fmt.Println("Enter facts (blank line to finish):")
 	lines := make([]string, 0, 8)
-	for {
-		line, err := a.rl.Readline()
-		if err != nil {
-			return err
-		}
+	scanner := bufio.NewScanner(os.Stdin)
+	for scanner.Scan() {
+		line := scanner.Text()
 		if strings.TrimSpace(line) == "" {
 			break
 		}
@@ -209,7 +209,7 @@ func (a *Agent) runRemember() error {
 
 	existing := a.memory.Facts()
 	var promptBuilder strings.Builder
-	promptBuilder.WriteString("You are a memory curator. Here are the current memory facts:\n")
+	promptBuilder.WriteString("You are a memory curator. Write all facts in third person (e.g 'user's name is x' not 'my name is x'). Here are the current memory facts:\n")
 	if len(existing) == 0 {
 		promptBuilder.WriteString("(none)\n")
 	} else {
@@ -228,7 +228,8 @@ func (a *Agent) runRemember() error {
 	promptBuilder.WriteString("- Output ONLY the JSON array (and any CONFLICT lines before it). No explanation.")
 
 	messages := []client.Message{{Role: "user", Content: promptBuilder.String()}}
-	resp, err := a.lm.StreamChat(messages, 500, nil)
+	resp, err := a.lm.StreamChat(messages, 4096, nil)
+	fmt.Println()
 	if err != nil {
 		return err
 	}

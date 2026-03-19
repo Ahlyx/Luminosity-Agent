@@ -50,11 +50,13 @@ type chatRequest struct {
 }
 
 type streamChunk struct {
-	Choices []struct {
-		Delta struct {
-			Content string `json:"content"`
-		} `json:"delta"`
-	} `json:"choices"`
+    Choices []struct {
+        Delta struct {
+            Content          string `json:"content"`
+            ReasoningContent string `json:"reasoning_content"`
+        } `json:"delta"`
+        FinishReason string `json:"finish_reason"`
+    } `json:"choices"`
 }
 
 func (c *LMStudioClient) StreamChat(messages []Message, maxTokens int, onToken func(string)) (string, error) {
@@ -67,7 +69,7 @@ func (c *LMStudioClient) StreamChat(messages []Message, maxTokens int, onToken f
 		Stream:      true,
 		Temperature: 0.7,
 		MaxTokens:   maxTokens,
-		Stop:        []string{"\n\n\n"},
+		Stop:        []string{},
 	}
 	payload, err := json.Marshal(body)
 	if err != nil {

@@ -15,7 +15,6 @@ import (
 
 type ShellTool struct {
 	TrustMode bool
-	Input     *bufio.Reader
 }
 
 func (t *ShellTool) Name() string        { return "shell" }
@@ -33,10 +32,7 @@ func (t *ShellTool) Execute(params map[string]string) (string, error) {
 	if !t.TrustMode {
 		fmt.Printf("Shell command: %s\n", cmd)
 		fmt.Print("Execute? [y/N]: ")
-		reader := t.Input
-		if reader == nil {
-			reader = bufio.NewReader(os.Stdin)
-		}
+		reader := bufio.NewReader(os.Stdin)
 		line, _ := reader.ReadString('\n')
 		if strings.ToLower(strings.TrimSpace(line)) != "y" {
 			return "User declined execution", nil

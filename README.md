@@ -15,6 +15,10 @@ A lightweight local CLI AI agent framework in Go, tuned for small quantized mode
 
 - Go 1.23+
 - LM Studio running with an OpenAI-compatible local server endpoint
+- `github.com/charmbracelet/bubbletea`
+- `github.com/charmbracelet/bubbles`
+- `github.com/charmbracelet/lipgloss`
+- `gopkg.in/yaml.v3`
 
 ## Setup
 

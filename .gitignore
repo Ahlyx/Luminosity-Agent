@@ -1,0 +1,29 @@
+# binary
+luminosity-agent
+
+# go build cache
+*.test
+*.out
+
+# downloaded tarball
+*.tar.gz
+
+# config with potentially sensitive URLs/keys
+config.yaml
+
+# memory and notes (personal data)
+~/.luminosity/
+*.luminosity/
+memory.json
+
+# env files
+.env
+.env.*
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db

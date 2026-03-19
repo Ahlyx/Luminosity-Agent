@@ -42,7 +42,7 @@ type ToolsConfig struct {
 func Default() Config {
 	return Config{
 		LMStudio: LMStudioConfig{
-			BaseURL:        "http://192.168.189.1:1234",
+			BaseURL:        "http://localhost:1234",
 			Model:          "qwen3.5-4b",
 			TimeoutSeconds: 120,
 		},

@@ -1,11 +1,11 @@
 package main
-
+ 
 import (
 	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
-
+ 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/ahlyx/luminosity-agent/config"
 	"github.com/ahlyx/luminosity-agent/internal/agent"
@@ -15,46 +15,54 @@ import (
 	"github.com/ahlyx/luminosity-agent/internal/tools/builtin"
 	"github.com/ahlyx/luminosity-agent/internal/tui"
 )
-
+ 
 func main() {
 	defaultConfig := filepath.Join(userHome(), ".luminosity", "config.yaml")
 	configPath := flag.String("config", defaultConfig, "Path to config.yaml")
 	trustFlag := flag.Bool("trust", false, "Enable trust mode for shell tool")
 	flag.Parse()
-
+ 
 	cfg, err := config.Load(*configPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to load config: %v\n", err)
 		os.Exit(1)
 	}
-
+ 
 	trustMode := cfg.Tools.TrustMode || *trustFlag
 	lm := client.New(cfg.LMStudio.BaseURL, cfg.LMStudio.Model, cfg.LMStudio.TimeoutSeconds)
 	mem := memory.NewManager(cfg.Memory.Path, cfg.Memory.MaxFacts)
-
+ 
+	// Vector store — embeds markdown files in memory dir via nomic
+	vs := memory.NewVectorStore(cfg.Memory.Dir, lm.Embed)
+ 
 	registry := tools.NewRegistry()
+	registry.Register(builtin.WebSearchTool{
+		TavilyKey: cfg.Search.TavilyKey,
+		BraveKey:  cfg.Search.BraveKey,
+	})
 	registry.Register(builtin.WebFetchTool{})
 	registry.Register(builtin.WriteNoteTool{})
 	registry.Register(builtin.ReadNoteTool{})
 	registry.Register(&builtin.ShellTool{TrustMode: trustMode})
-
+ 
 	inputCh := make(chan string, 10)
-
+ 
 	m := tui.New(inputCh)
 	p := tea.NewProgram(m, tea.WithAltScreen())
-
-	go runAgent(cfg, lm, mem, registry, trustMode, inputCh, p)
-
+ 
+	go runAgent(cfg, lm, mem, vs, registry, trustMode, inputCh, p)
+ 
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "TUI error: %v\n", err)
 		os.Exit(1)
 	}
 }
-
+ 
 func runAgent(
 	cfg config.Config,
 	lm *client.LMStudioClient,
 	mem *memory.Manager,
+	vs *memory.VectorStore,
 	registry *tools.Registry,
 	trustMode bool,
 	inputCh <-chan string,
@@ -68,16 +76,23 @@ func runAgent(
 	if corrupted {
 		p.Send(tui.AgentMsg{Kind: tui.KindSystem, Text: "Memory file corrupted, starting fresh."})
 	}
-
-	a := agent.NewHeadless(cfg, lm, mem, registry, trustMode, func(kind tui.MsgKind, text string) {
+ 
+	// Load and embed vector memory — non-fatal if dir is empty or missing
+	if err := vs.Load(); err != nil {
+		p.Send(tui.AgentMsg{Kind: tui.KindSystem, Text: fmt.Sprintf("Vector memory load error: %v", err)})
+	} else if vs.Count() > 0 {
+		p.Send(tui.AgentMsg{Kind: tui.KindSystem, Text: fmt.Sprintf("Memory: %d chunks loaded.", vs.Count())})
+	}
+ 
+	a := agent.NewHeadless(cfg, lm, mem, vs, registry, trustMode, func(kind tui.MsgKind, text string) {
 		p.Send(tui.AgentMsg{Kind: kind, Text: text})
 	})
-
+ 
 	for input := range inputCh {
 		a.Handle(input)
 	}
 }
-
+ 
 func userHome() string {
 	h, err := os.UserHomeDir()
 	if err != nil {

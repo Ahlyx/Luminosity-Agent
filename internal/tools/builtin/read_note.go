@@ -12,7 +12,7 @@ type ReadNoteTool struct{}
 func (t ReadNoteTool) Name() string        { return "read_note" }
 func (t ReadNoteTool) Description() string { return "Reads a named note from local storage." }
 func (t ReadNoteTool) Schema() string {
-	return `{"tool":"read_note","name":"todo"}`
+	return "<tool>read_note</tool>\n<path>notes/example.md</path>"
 }
 
 func (t ReadNoteTool) Execute(params map[string]string) (string, error) {

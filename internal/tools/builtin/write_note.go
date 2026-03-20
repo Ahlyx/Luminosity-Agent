@@ -15,7 +15,7 @@ func (t WriteNoteTool) Description() string {
 	return "Writes a named note to local persistent storage."
 }
 func (t WriteNoteTool) Schema() string {
-	return `{"tool":"write_note","name":"todo","content":"buy milk"}`
+	return "<tool>write_note</tool>\n<path>notes/example.md</path>\n<content>content here</content>"
 }
 
 func (t WriteNoteTool) Execute(params map[string]string) (string, error) {

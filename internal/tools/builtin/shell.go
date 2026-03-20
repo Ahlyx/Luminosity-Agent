@@ -20,7 +20,7 @@ type ShellTool struct {
 func (t *ShellTool) Name() string        { return "shell" }
 func (t *ShellTool) Description() string { return "Runs a shell command with optional confirmation." }
 func (t *ShellTool) Schema() string {
-	return `{"tool":"shell","command":"ls -la"}`
+	return "<tool>shell</tool>\n<command>ls -la</command>"
 }
 
 func (t *ShellTool) Execute(params map[string]string) (string, error) {

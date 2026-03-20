@@ -15,7 +15,7 @@ type WebFetchTool struct{}
 func (t WebFetchTool) Name() string        { return "web_fetch" }
 func (t WebFetchTool) Description() string { return "Fetches a URL and returns a plain-text excerpt." }
 func (t WebFetchTool) Schema() string {
-	return `{"tool":"web_fetch","url":"https://example.com"}`
+	return "<tool>web_fetch</tool>\n<url>https://example.com</url>"
 }
 
 func (t WebFetchTool) Execute(params map[string]string) (string, error) {

@@ -1,5 +1,5 @@
 package agent
-
+ 
 import (
 	"bufio"
 	"encoding/json"
@@ -7,7 +7,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
-
+ 
 	"github.com/ahlyx/luminosity-agent/config"
 	"github.com/ahlyx/luminosity-agent/internal/client"
 	"github.com/ahlyx/luminosity-agent/internal/memory"
@@ -15,14 +15,14 @@ import (
 	"github.com/ahlyx/luminosity-agent/internal/tools"
 	"github.com/ahlyx/luminosity-agent/internal/tui"
 )
-
-// OutputFn is the callback the headless agent uses to send output to the TUI.
+ 
 type OutputFn func(kind tui.MsgKind, text string)
-
+ 
 type HeadlessAgent struct {
 	cfg        config.Config
 	lm         *client.LMStudioClient
 	memory     *memory.Manager
+	vs         *memory.VectorStore
 	ctxMgr     *ContextManager
 	registry   *tools.Registry
 	executor   *tools.Executor
@@ -31,11 +31,12 @@ type HeadlessAgent struct {
 	systemText string
 	output     OutputFn
 }
-
+ 
 func NewHeadless(
 	cfg config.Config,
 	lm *client.LMStudioClient,
 	mem *memory.Manager,
+	vs *memory.VectorStore,
 	registry *tools.Registry,
 	trustMode bool,
 	output OutputFn,
@@ -50,6 +51,7 @@ func NewHeadless(
 		cfg:        cfg,
 		lm:         lm,
 		memory:     mem,
+		vs:         vs,
 		ctxMgr:     ctxMgr,
 		registry:   registry,
 		executor:   tools.NewExecutor(registry),
@@ -58,8 +60,7 @@ func NewHeadless(
 		output:     output,
 	}
 }
-
-// Handle processes a single input line from the TUI.
+ 
 func (a *HeadlessAgent) Handle(input string) {
 	input = strings.TrimSpace(input)
 	if input == "" {
@@ -79,7 +80,7 @@ func (a *HeadlessAgent) Handle(input string) {
 		a.output(tui.KindError, err.Error())
 	}
 }
-
+ 
 func (a *HeadlessAgent) handleSlash(line string) (bool, error) {
 	if strings.HasPrefix(line, "/remember") {
 		return false, a.runRemember()
@@ -92,7 +93,7 @@ func (a *HeadlessAgent) handleSlash(line string) (bool, error) {
 		}
 		a.output(tui.KindSystem, strings.TrimRight(sb.String(), "\n"))
 		return false, nil
-
+ 
 	case "/tools":
 		var sb strings.Builder
 		for _, t := range a.registry.List() {
@@ -100,26 +101,45 @@ func (a *HeadlessAgent) handleSlash(line string) (bool, error) {
 		}
 		a.output(tui.KindSystem, strings.TrimRight(sb.String(), "\n"))
 		return false, nil
-
+ 
 	case "/memory":
 		var sb strings.Builder
-		sb.WriteString("Facts:\n")
-		for i, fact := range a.memory.Facts() {
-			sb.WriteString(fmt.Sprintf("%d. %s\n", i+1, fact))
+		chunks := a.vs.All()
+		if len(chunks) > 0 {
+			sb.WriteString(fmt.Sprintf("Vector memory (%d chunks):\n", len(chunks)))
+			for _, c := range chunks {
+				sb.WriteString(fmt.Sprintf("  - %s\n", c.Name))
+			}
+		} else {
+			sb.WriteString("Vector memory: empty\n")
+		}
+		facts := a.memory.Facts()
+		if len(facts) > 0 {
+			sb.WriteString("\nFacts:\n")
+			for i, fact := range facts {
+				sb.WriteString(fmt.Sprintf("%d. %s\n", i+1, fact))
+			}
 		}
 		summary := a.memory.Summary()
-		if summary == "" {
-			summary = "none"
+		if summary != "" {
+			sb.WriteString("Summary: " + summary)
 		}
-		sb.WriteString("Summary: " + summary)
-		a.output(tui.KindSystem, sb.String())
+		a.output(tui.KindSystem, strings.TrimRight(sb.String(), "\n"))
 		return false, nil
-
+ 
+	case "/reload":
+		if err := a.vs.Reload(); err != nil {
+			a.output(tui.KindError, "Reload failed: "+err.Error())
+		} else {
+			a.output(tui.KindSystem, fmt.Sprintf("Memory reloaded. %d chunks.", a.vs.Count()))
+		}
+		return false, nil
+ 
 	case "/clear":
 		a.history = nil
 		a.output(tui.KindSystem, "Conversation history cleared.")
 		return false, nil
-
+ 
 	case "/reset":
 		a.history = nil
 		if err := a.memory.Reset(); err != nil {
@@ -127,16 +147,31 @@ func (a *HeadlessAgent) handleSlash(line string) (bool, error) {
 		}
 		a.output(tui.KindSystem, "Conversation and memory reset.")
 		return false, nil
-
+ 
 	case "/quit":
 		return true, nil
-
+ 
 	default:
 		a.output(tui.KindSystem, "Unknown command. Use /help.")
 		return false, nil
 	}
 }
-
+ 
+func (a *HeadlessAgent) buildMemoryInjection(userInput string) string {
+	if a.vs.Count() > 0 {
+		injection := a.vs.BuildInjection(
+			userInput,
+			a.cfg.Memory.TopK,
+			a.cfg.Memory.AlwaysInject,
+			a.cfg.Context.MemoryBudget,
+		)
+		if injection != "" {
+			return "[memory]\n" + injection
+		}
+	}
+	return a.memory.InjectionMessage()
+}
+ 
 func (a *HeadlessAgent) handleUserMessage(input string) error {
 	a.history = append(a.history, client.Message{Role: "user", Content: input})
 	a.history = a.ctxMgr.EnforceHistoryBudget(
@@ -145,70 +180,73 @@ func (a *HeadlessAgent) handleUserMessage(input string) error {
 		a.summarizeTurns,
 		a.memory.SetSummary,
 	)
-
-	messages := a.ctxMgr.BuildMessages(a.systemText, a.memory.InjectionMessage(), a.history)
-
-	var buf strings.Builder
+ 
+	memMsg := a.buildMemoryInjection(input)
+	messages := a.ctxMgr.BuildMessages(a.systemText, memMsg, a.history)
+ 
+	a.output(tui.KindAssistantStart, "")
+ 
+	var fullResp strings.Builder
 	resp, err := a.lm.StreamChat(messages, a.cfg.Context.ResponseReserve, func(tok string) {
-		buf.WriteString(tok)
+		fullResp.WriteString(tok)
+		a.output(tui.KindToken, tok)
 	})
-
-	if buf.Len() > 0 {
-		a.output(tui.KindAssistant, strings.TrimSpace(buf.String()))
-	}
-
+ 
+	a.output(tui.KindThinkingStop, "")
+ 
 	if err != nil {
-		a.output(tui.KindThinkingStop, "")
 		a.output(tui.KindError, err.Error())
 		return nil
 	}
-
+ 
+	_ = fullResp
+ 
 	a.history = append(a.history, client.Message{Role: "assistant", Content: resp})
 	a.memory.Save()
-
+ 
 	call, ok := a.executor.FindFirstToolCall(resp)
 	if !ok {
-		a.output(tui.KindThinkingStop, "")
 		return nil
 	}
-
-	// Execute tool
+ 
 	out, execErr := a.executor.Execute(call)
 	if execErr != nil {
 		out = "Error: " + execErr.Error()
 	}
 	out = tools.Truncate(out, 1500)
-	toolResult := map[string]string{"tool_result": call.Name, "output": out}
-	b, _ := json.Marshal(toolResult)
-	msg := string(b)
-	a.history = append(a.history, client.Message{Role: "user", Content: msg})
-	a.output(tui.KindTool, fmt.Sprintf("%s → %s", call.Name, out[:min(len(out), 80)]))
-
-	// Second LM call to process the tool result
-	messages2 := a.ctxMgr.BuildMessages(a.systemText, a.memory.InjectionMessage(), a.history)
-	var buf2 strings.Builder
-	resp2, err2 := a.lm.StreamChat(messages2, a.cfg.Context.ResponseReserve, func(tok string) {
-		buf2.WriteString(tok)
-	})
-	if buf2.Len() > 0 {
-		a.output(tui.KindAssistant, strings.TrimSpace(buf2.String()))
+ 
+	preview := out
+	if len(preview) > 80 {
+		preview = preview[:80] + "..."
 	}
+	a.output(tui.KindTool, fmt.Sprintf("%s → %s", call.Name, preview))
+ 
+	toolResult := map[string]string{
+		"tool_result": call.Name,
+		"output":      out,
+	}
+	b, _ := json.Marshal(toolResult)
+	a.history = append(a.history, client.Message{Role: "user", Content: string(b)})
+ 
+	messages2 := a.ctxMgr.BuildMessages(a.systemText, memMsg, a.history)
+ 
+	a.output(tui.KindAssistantStart, "")
+ 
+	resp2, err2 := a.lm.StreamChat(messages2, a.cfg.Context.ResponseReserve, func(tok string) {
+		a.output(tui.KindToken, tok)
+	})
+ 
 	a.output(tui.KindThinkingStop, "")
+ 
 	if err2 != nil {
 		a.output(tui.KindError, err2.Error())
 		return nil
 	}
+ 
 	a.history = append(a.history, client.Message{Role: "assistant", Content: resp2})
 	return a.memory.Save()
 }
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
+ 
 func (a *HeadlessAgent) summarizeTurns(turns []client.Message) string {
 	if len(turns) == 0 {
 		return ""
@@ -232,7 +270,7 @@ func (a *HeadlessAgent) summarizeTurns(turns []client.Message) string {
 	}
 	return strings.TrimSpace(resp)
 }
-
+ 
 func (a *HeadlessAgent) runRemember() error {
 	a.output(tui.KindSystem, "Enter facts (blank line to finish):")
 	lines := make([]string, 0, 8)
@@ -249,10 +287,10 @@ func (a *HeadlessAgent) runRemember() error {
 		return nil
 	}
 	a.output(tui.KindSystem, "Processing memory...")
-
+ 
 	existing := a.memory.Facts()
 	var pb strings.Builder
-	pb.WriteString("You are a memory curator. Write all facts in third person (e.g 'user's name is x' not 'my name is x'). Here are the current memory facts:\n")
+	pb.WriteString("You are a memory curator. Write all facts in third person (e.g 'user's name is alex' not 'my name is alex'). Here are the current memory facts:\n")
 	if len(existing) == 0 {
 		pb.WriteString("(none)\n")
 	} else {
@@ -264,39 +302,55 @@ func (a *HeadlessAgent) runRemember() error {
 	pb.WriteString(strings.Join(lines, "\n"))
 	pb.WriteString("\n\nYour task:\n")
 	pb.WriteString("- Merge the new information with existing facts intelligently.\n")
-	pb.WriteString("- Combine or update related facts (e.g. if a new interest is mentioned alongside an existing interest, keep both).\n")
-	pb.WriteString("- Do not replace facts unless the new information explicitly contradicts and supersedes them.\n")
-	pb.WriteString("- After merging, check the full facts list for contradictions. If you find a contradiction you cannot resolve, output a CONFLICT line: CONFLICT: <description of conflict>.\n")
+	pb.WriteString("- Combine or update related facts.\n")
+	pb.WriteString("- Do not replace facts unless the new information explicitly contradicts them.\n")
+	pb.WriteString("- If you find a contradiction you cannot resolve, output: CONFLICT: <description>\n")
 	pb.WriteString("- Output the final merged facts list as a JSON array of strings, one fact per string, each under 20 words.\n")
 	pb.WriteString("- Output ONLY the JSON array (and any CONFLICT lines before it). No explanation.")
-
+ 
 	messages := []client.Message{{Role: "user", Content: pb.String()}}
 	resp, err := a.lm.StreamChat(messages, 4096, nil)
 	if err != nil {
 		return err
 	}
-
+ 
 	for _, line := range strings.Split(resp, "\n") {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "CONFLICT:") {
 			a.output(tui.KindSystem, "[CONFLICT] "+strings.TrimSpace(strings.TrimPrefix(line, "CONFLICT:")))
 		}
 	}
-
+ 
 	factsJSON := extractJSONArray(resp)
 	if factsJSON == "" {
 		return fmt.Errorf("failed to parse curated facts from model")
 	}
-
+ 
 	var facts []string
 	if err := json.Unmarshal([]byte(factsJSON), &facts); err != nil {
 		return fmt.Errorf("failed to decode facts: %w", err)
 	}
-
+ 
 	a.memory.SetFacts(facts)
 	if err := a.memory.Save(); err != nil {
 		return err
 	}
 	a.output(tui.KindSystem, fmt.Sprintf("Memory updated. %d facts stored.", len(a.memory.Facts())))
 	return nil
+}
+ 
+func extractJSONArray(s string) string {
+	start := strings.Index(s, "[")
+	end := strings.LastIndex(s, "]")
+	if start == -1 || end == -1 || end <= start {
+		return ""
+	}
+	return s[start : end+1]
+}
+ 
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

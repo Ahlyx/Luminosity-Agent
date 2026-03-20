@@ -10,9 +10,26 @@ context:
   response_reserve: 1024
 
 memory:
+  # Legacy flat facts (used by /remember)
   path: "~/.luminosity/memory.json"
   max_facts: 50
   auto_summarize: true
 
+  # Vector memory — markdown files embedded via nomic-embed-text
+  dir: "~/.luminosity/memory/"
+  always_inject: ["core.md"]
+  top_k: 3
+  embed_model: "text-embedding-nomic-embed-text-v1.5"
+
 tools:
   trust_mode: false
+
+search:
+  # Tavily: get a free key at tavily.com
+  # Can also set TAVILY_API_KEY env var instead
+  tavily_key: "tvly-dev-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+
+  # Brave Search: get a key at api.search.brave.com
+  # Can also set BRAVE_API_KEY env var instead
+  # Used as fallback if Tavily fails or rate limits
+  brave_key: "BSA-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"

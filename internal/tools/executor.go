@@ -1,24 +1,23 @@
 package tools
- 
+
 import (
 	"fmt"
-	"regexp"
 	"strings"
 )
- 
+
 type Executor struct {
 	registry *Registry
 }
- 
+
 func NewExecutor(registry *Registry) *Executor {
 	return &Executor{registry: registry}
 }
- 
+
 type ToolCall struct {
 	Name   string
 	Params map[string]string
 }
- 
+
 // xmlTag extracts the content of a single XML tag from s.
 // Returns ("", false) if the tag is not present.
 func xmlTag(s, tag string) (string, bool) {
@@ -35,12 +34,7 @@ func xmlTag(s, tag string) (string, bool) {
 	}
 	return strings.TrimSpace(s[start : start+end]), true
 }
- 
-// toolBlockRe matches a complete <tool>...</tool> block and everything
-// that follows it on subsequent lines until the next blank line or end of
-// string.  We capture everything after <tool> so we can extract sibling tags.
-var toolBlockRe = regexp.MustCompile(`(?s)<tool>(.*?)</tool>(.*?)(?:\n\n|\z)`)
- 
+
 // FindFirstToolCall scans response for the first XML tool call block.
 //
 // Supported formats:
@@ -58,25 +52,23 @@ var toolBlockRe = regexp.MustCompile(`(?s)<tool>(.*?)</tool>(.*?)(?:\n\n|\z)`)
 //	<tool>shell</tool>
 //	<command>ls -la</command>
 func (e *Executor) FindFirstToolCall(response string) (ToolCall, bool) {
-	// Find <tool> tag
 	toolName, ok := xmlTag(response, "tool")
 	if !ok || toolName == "" {
 		return ToolCall{}, false
 	}
- 
+
 	params := make(map[string]string)
- 
-	// Extract every known parameter tag that might appear
+
 	paramTags := []string{"url", "query", "path", "content", "command", "name"}
 	for _, tag := range paramTags {
 		if val, found := xmlTag(response, tag); found {
 			params[tag] = val
 		}
 	}
- 
+
 	return ToolCall{Name: toolName, Params: params}, true
 }
- 
+
 func (e *Executor) Execute(call ToolCall) (string, error) {
 	tool, ok := e.registry.Get(call.Name)
 	if !ok {
@@ -84,7 +76,7 @@ func (e *Executor) Execute(call ToolCall) (string, error) {
 	}
 	return tool.Execute(call.Params)
 }
- 
+
 func Truncate(s string, max int) string {
 	s = strings.TrimSpace(s)
 	r := []rune(s)

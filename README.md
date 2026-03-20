@@ -1,122 +1,163 @@
 # luminosity-agent
 
-A lightweight local CLI AI agent framework in Go, tuned for small quantized models (like 4B Q6) behind LM Studio's OpenAI-compatible API.
+A lightweight local CLI AI agent framework in Go, built for small quantized models behind LM Studio's OpenAI-compatible API.
 
 ## Features
 
-- Persistent cross-session memory in `~/.luminosity/memory.json`
-- Lean tool system with one-tool-per-turn execution
-- Context manager for strict 8192-token budgeting
-- Streaming LM Studio chat responses in terminal
-- Slash commands for memory management and runtime controls
-- `/remember` multiline memory curation flow
+- **Vector memory** — markdown files in `~/.luminosity/memory/` embedded via nomic-embed-text, semantically searched per turn
+- **XML tool calling** — reliable tool format for small models: `<tool>`, `<query>`, `<url>`, `<path>`, `<content>`
+- **Web search** — Tavily (primary) with Brave Search fallback
+- **Web fetch** — fetches and strips HTML from any URL
+- **Shell tool** — runs bash commands with optional confirmation prompt
+- **Note tools** — persistent read/write note storage in `~/.luminosity/notes/`
+- **Streaming TUI** — live token streaming via Charm (bubbletea + lipgloss)
+- **Legacy flat memory** — `/remember` command for manual fact curation
+- **Context budgeting** — strict token budget management with auto-summarization
 
 ## Requirements
 
-- Go 1.23+
-- LM Studio running with an OpenAI-compatible local server endpoint
-- `github.com/charmbracelet/bubbletea`
-- `github.com/charmbracelet/bubbles`
-- `github.com/charmbracelet/lipgloss`
-- `gopkg.in/yaml.v3`
+- Go 1.24+
+- LM Studio running with:
+  - A chat model loaded (e.g. `qwen3.5-4b`)
+  - `nomic-embed-text-v1.5` loaded for vector memory embeddings
+- Tavily API key (free tier at tavily.com) for web search
+- Brave Search API key (optional fallback)
 
 ## Setup
 
-1. Clone this repository.
-2. Copy the example config:
-   ```bash
-   mkdir -p ~/.luminosity
-   cp config.yaml.example ~/.luminosity/config.yaml
-   ```
-3. Edit `~/.luminosity/config.yaml` and set:
-   - `lmstudio.base_url` to your LM Studio server URL (for example VM->Windows host IP)
-   - `lmstudio.model` to your loaded model name
-4. Run:
-   ```bash
-   go run ./cmd
-   ```
+```bash
+# 1. Clone
+git clone https://github.com/ahlyx/luminosity-agent
+cd luminosity-agent
 
-## Trust mode (`-trust`)
+# 2. Create config directory and copy example
+mkdir -p ~/.luminosity/memory/
+cp config.yaml.example ~/.luminosity/config.yaml
 
-By default, the `shell` tool asks for confirmation before command execution.
+# 3. Edit config with your values
+nano ~/.luminosity/config.yaml
 
-Enable trust mode to skip prompts:
+# 4. Run
+go run ./cmd
+```
+
+## Configuration
+
+Config lives at `~/.luminosity/config.yaml` — never committed to the repo.
+
+See `config.yaml.example` for the full structure. Key fields:
+
+| Field | Default | Description |
+|---|---|---|
+| `lmstudio.base_url` | `http://localhost:1234` | LM Studio server URL |
+| `lmstudio.model` | `qwen3.5-4b` | Chat model name |
+| `memory.dir` | `~/.luminosity/memory/` | Vector memory markdown files |
+| `memory.always_inject` | `["core.md"]` | Files always injected regardless of similarity |
+| `memory.top_k` | `3` | Max vector search results injected per turn |
+| `search.tavily_key` | — | Tavily API key (or set `TAVILY_API_KEY` env var) |
+| `search.brave_key` | — | Brave Search API key (or set `BRAVE_API_KEY` env var) |
+
+## Vector Memory
+
+Luminosity uses semantic search to inject only relevant memory context per turn.
+
+**Setup:**
+```bash
+mkdir -p ~/.luminosity/memory/skills
+mkdir -p ~/.luminosity/memory/projects
+```
+
+Create markdown files in any subdirectory:
+```
+~/.luminosity/memory/
+  core.md              # Always injected — identity, preferences
+  skills/
+    go.md              # Go conventions and skill level
+    security.md        # Security research context
+  projects/
+    my-project.md      # Project-specific context
+```
+
+On startup Luminosity embeds all files via nomic. Each turn it searches for the top `top_k` most relevant files and injects them alongside `core.md`.
+
+**Slash commands for memory:**
+- `/memory` — show all loaded chunks and legacy facts
+- `/reload` — re-embed files after editing them
+
+## Tool Calling
+
+Tools use XML tags on their own lines:
+
+```
+<tool>web_search</tool>
+<query>OT ICS security vulnerabilities 2024</query>
+
+<tool>web_fetch</tool>
+<url>https://example.com/article</url>
+
+<tool>write_note</tool>
+<path>notes/research.md</path>
+<content>content here</content>
+
+<tool>read_note</tool>
+<path>notes/research.md</path>
+
+<tool>shell</tool>
+<command>ls -la</command>
+```
+
+## Trust Mode
+
+The `shell` tool prompts for confirmation before executing commands by default.
 
 ```bash
+# Skip confirmation prompts
 go run ./cmd -trust
+
+# Or set in config
+tools:
+  trust_mode: true
 ```
 
-Trust mode is enabled if either:
-- `-trust` is set, or
-- `tools.trust_mode: true` in config
+## Slash Commands
 
-## Slash commands
+| Command | Description |
+|---|---|
+| `/help` | Show tools and descriptions |
+| `/tools` | Show tool schemas |
+| `/memory` | Show vector chunks and legacy facts |
+| `/reload` | Re-embed memory files after editing |
+| `/remember` | Multiline manual fact curation |
+| `/clear` | Clear conversation history |
+| `/reset` | Clear history and wipe legacy facts |
+| `/quit` | Save and exit |
 
-- `/help` – show tools and one-line descriptions
-- `/tools` – show compact JSON schemas
-- `/memory` – print current facts + summary
-- `/clear` – clear conversation history only
-- `/reset` – clear history and wipe memory
-- `/remember` – multiline memory curation mode
-- `/quit` – save memory and exit
+## Architecture
 
-## `/remember` usage
-
-When you run `/remember`, enter facts line by line and end with a blank line.
-The agent sends a separate curation request to merge/update facts, checks for conflicts, and saves results.
-
-Example:
-
-```text
-> /remember
-Enter facts (blank line to finish):
-my name is alex
-i work on OT/ICS security
-i am 20 years old studying at CNM
-
-Processing memory...
-[CONFLICT] Existing fact ...
-Memory updated. 12 facts stored.
 ```
-
-## Example session showing persistence across runs
-
-Run 1:
-
-```text
-$ go run ./cmd
-> /remember
-Enter facts (blank line to finish):
-my name is alex
-i work on OT/ICS security
-
-Processing memory...
-Memory updated. 2 facts stored.
-> /quit
+cmd/main.go                     — entrypoint, wires all components
+config/config.go                — YAML config loader
+internal/
+  agent/
+    headless.go                 — main agent loop, tool execution, memory injection
+    context.go                  — token budget management
+  client/
+    lmstudio.go                 — LM Studio chat streaming + embeddings client
+  memory/
+    vector.go                   — vector store: embed, search, inject
+    memory.go                   — legacy flat facts manager
+    store.go                    — JSON persistence
+  prompt/
+    builder.go                  — system prompt
+  tools/
+    executor.go                 — XML tool call parser
+    registry.go                 — tool registry
+    builtin/
+      web_search.go             — Tavily + Brave Search
+      web_fetch.go              — HTML fetch and strip
+      write_note.go             — note persistence
+      read_note.go              — note retrieval
+      shell.go                  — shell execution
+  tui/
+    tui.go                      — Charm TUI with live streaming
 ```
-
-Run 2:
-
-```text
-$ go run ./cmd
-> /memory
-Facts:
-1. user's name is alex
-2. user works on OT/ICS security
-Summary: none
-> /quit
-```
-
-## Notes on design
-
-- System prompt is static and ends with `Be concise.`
-- Tool outputs are always truncated to 500 chars before reinjection.
-- Memory injection is added as a **user** message before the active turn.
-- Summarization is isolated and triggered when history budget is exceeded.
-
-## Dependencies
-
-Only:
-- `github.com/chzyer/readline`
-- `gopkg.in/yaml.v3`
-

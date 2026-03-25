@@ -44,6 +44,13 @@ func main() {
 	registry.Register(builtin.WriteNoteTool{})
 	registry.Register(builtin.ReadNoteTool{})
 	registry.Register(&builtin.ShellTool{TrustMode: trustMode})
+
+	ingestedDir := filepath.Join(userHome(), ".luminosity", "memory", "ingested")
+	registry.Register(builtin.SaveMemoryTool{
+		VS:          vs,
+		Embed:       lm.Embed,
+		IngestedDir: ingestedDir,
+	})
  
 	inputCh := make(chan string, 10)
  

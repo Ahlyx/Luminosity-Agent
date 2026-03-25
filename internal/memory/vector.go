@@ -1,6 +1,7 @@
 package memory
  
 import (
+	"fmt"
 	"math"
 	"os"
 	"path/filepath"
@@ -291,6 +292,55 @@ func (vs *VectorStore) BuildInjection(query string, k int, alwaysInclude []strin
 	return result
 }
  
+// IsDuplicate returns true if any existing chunk has cosine similarity >= threshold
+// to the given vector. Use threshold 0.87 to detect near-duplicate content.
+func (vs *VectorStore) IsDuplicate(vec []float32, threshold float32) bool {
+	vs.mu.RLock()
+	defer vs.mu.RUnlock()
+	for _, c := range vs.chunks {
+		if len(c.Vector) == 0 {
+			continue
+		}
+		if cosineSimilarity(vec, c.Vector) >= threshold {
+			return true
+		}
+	}
+	return false
+}
+
+// InjectChunks appends the given chunks to the in-memory store immediately,
+// making them available for search without requiring a reload.
+func (vs *VectorStore) InjectChunks(chunks []Chunk) {
+	vs.mu.Lock()
+	defer vs.mu.Unlock()
+	vs.chunks = append(vs.chunks, chunks...)
+}
+
+// PersistChunk writes chunk.Content to a file at ingestedDir/<sanitized-name>.md,
+// creating the directory if needed. This ensures ingested chunks survive restarts
+// since Load() will re-embed them on next boot.
+func (vs *VectorStore) PersistChunk(chunk Chunk, ingestedDir string) error {
+	if err := os.MkdirAll(ingestedDir, 0o755); err != nil {
+		return fmt.Errorf("create ingested dir: %w", err)
+	}
+	safe := sanitizeName(chunk.Name)
+	path := filepath.Join(ingestedDir, safe+".md")
+	return os.WriteFile(path, []byte(chunk.Content), 0o644)
+}
+
+// sanitizeName converts a chunk name to a safe filename by stripping path
+// separators and replacing spaces with underscores.
+func sanitizeName(name string) string {
+	name = strings.ReplaceAll(name, string(os.PathSeparator), "_")
+	name = strings.ReplaceAll(name, "/", "_")
+	name = strings.ReplaceAll(name, "\\", "_")
+	name = strings.ReplaceAll(name, " ", "_")
+	if name == "" {
+		name = "chunk"
+	}
+	return name
+}
+
 // ── helpers ───────────────────────────────────────────────────────────────────
  
 func formatChunk(c Chunk) string {

@@ -203,6 +203,26 @@ func (c *LMStudioClient) StreamChat(messages []Message, maxTokens int, onToken f
 		return full.String(), err
 	}
  
-	return full.String(), nil
+	return stripThinkBlocks(full.String()), nil
+}
+
+// stripThinkBlocks removes <think>...</think> spans from s.
+// If the closing tag is missing (stream ended mid-block), everything from
+// the opening <think> to end-of-string is removed.
+func stripThinkBlocks(s string) string {
+	for {
+		start := strings.Index(s, "<think>")
+		if start == -1 {
+			break
+		}
+		end := strings.Index(s[start:], "</think>")
+		if end == -1 {
+			// Unclosed block — strip from <think> to end
+			s = s[:start]
+			break
+		}
+		s = s[:start] + s[start+end+len("</think>"):]
+	}
+	return strings.TrimSpace(s)
 }
 

@@ -289,9 +289,7 @@ func (m Model) Init() tea.Cmd {
  
 func (m Model) renderLines() string {
 	var lines []string
-	if len(m.messages) == 0 {
-		lines = append(lines, RenderBanner(m.width-4))
-	}
+	lines = append(lines, RenderBanner(m.width-4))
 	for _, msg := range m.messages {
 		lines = append(lines, msg.Render(m.width-4))
 		lines = append(lines, "")

@@ -42,7 +42,16 @@ func (t WebFetchTool) Execute(params map[string]string) (string, error) {
 var tagRegex = regexp.MustCompile(`<[^>]*>`)
 var wsRegex = regexp.MustCompile(`\s+`)
 
+var htmlEntities = strings.NewReplacer(
+	"&amp;", "&",
+	"&lt;", "<",
+	"&gt;", ">",
+	"&quot;", `"`,
+	"&#39;", "'",
+)
+
 func stripHTML(input string) string {
 	noTags := tagRegex.ReplaceAllString(input, " ")
-	return strings.TrimSpace(wsRegex.ReplaceAllString(noTags, " "))
+	collapsed := strings.TrimSpace(wsRegex.ReplaceAllString(noTags, " "))
+	return htmlEntities.Replace(collapsed)
 }

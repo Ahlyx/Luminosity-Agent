@@ -82,6 +82,7 @@ func (a *HeadlessAgent) Handle(input string) {
 }
  
 func (a *HeadlessAgent) handleSlash(line string) (bool, error) {
+	a.output(tui.KindThinkingStop, "")
 	if strings.HasPrefix(line, "/remember") {
 		return false, a.runRemember()
 	}
@@ -235,6 +236,24 @@ func (a *HeadlessAgent) handleUserMessage(input string) error {
 			a.history = append(a.history, client.Message{Role: "assistant", Content: resp})
 		}
 	}
+
+	// If the last response was still a tool call or empty, force a synthesis pass.
+	if _, stillTool := a.executor.FindFirstToolCall(resp); stillTool || strings.TrimSpace(resp) == "" {
+		synthHistory := append(a.history, client.Message{
+			Role:    "user",
+			Content: "Based on the tool results above, provide a concise summary of your findings.",
+		})
+		messages := a.ctxMgr.BuildMessages(a.systemText, memMsg, synthHistory)
+		a.output(tui.KindAssistantStart, "")
+		resp, err = a.lm.StreamChat(messages, a.cfg.Context.ResponseReserve, func(tok string) {
+			a.output(tui.KindToken, tok)
+		})
+		a.output(tui.KindThinkingStop, "")
+		if err == nil && strings.TrimSpace(resp) != "" {
+			a.history = append(a.history, client.Message{Role: "assistant", Content: resp})
+		}
+	}
+
 	return a.memory.Save()
 }
  

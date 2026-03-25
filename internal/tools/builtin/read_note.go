@@ -16,9 +16,9 @@ func (t ReadNoteTool) Schema() string {
 }
 
 func (t ReadNoteTool) Execute(params map[string]string) (string, error) {
-	name := sanitizeName(params["name"])
+	name := sanitizeName(params["path"])
 	if name == "" {
-		return "missing parameter: name", nil
+		name = sanitizeName(params["name"]) // fallback
 	}
 	path, err := notePath(name)
 	if err != nil {

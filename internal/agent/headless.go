@@ -180,70 +180,61 @@ func (a *HeadlessAgent) handleUserMessage(input string) error {
 		a.summarizeTurns,
 		a.memory.SetSummary,
 	)
- 
 	memMsg := a.buildMemoryInjection(input)
 	messages := a.ctxMgr.BuildMessages(a.systemText, memMsg, a.history)
- 
 	a.output(tui.KindAssistantStart, "")
- 
 	var fullResp strings.Builder
 	resp, err := a.lm.StreamChat(messages, a.cfg.Context.ResponseReserve, func(tok string) {
 		fullResp.WriteString(tok)
 		a.output(tui.KindToken, tok)
 	})
- 
 	a.output(tui.KindThinkingStop, "")
- 
 	if err != nil {
 		a.output(tui.KindError, err.Error())
 		return nil
 	}
- 
 	_ = fullResp
- 
-	a.history = append(a.history, client.Message{Role: "assistant", Content: resp})
+	if strings.TrimSpace(resp) != "" {
+		a.history = append(a.history, client.Message{Role: "assistant", Content: resp})
+	}
 	a.memory.Save()
- 
-	call, ok := a.executor.FindFirstToolCall(resp)
-	if !ok {
-		return nil
+
+	maxToolCalls := 4
+	for i := 0; i < maxToolCalls; i++ {
+		call, ok := a.executor.FindFirstToolCall(resp)
+		if !ok {
+			break
+		}
+		out, execErr := a.executor.Execute(call)
+		if execErr != nil {
+			out = "Error: " + execErr.Error()
+		}
+		out = tools.Truncate(out, 1500)
+		preview := out
+		if len(preview) > 80 {
+			preview = preview[:80] + "..."
+		}
+		a.output(tui.KindTool, fmt.Sprintf("%s → %s", call.Name, preview))
+		toolResult := map[string]string{
+			"tool_result": call.Name,
+			"output":      out,
+		}
+		b, _ := json.Marshal(toolResult)
+		a.history = append(a.history, client.Message{Role: "user", Content: string(b)})
+		messages2 := a.ctxMgr.BuildMessages(a.systemText, memMsg, a.history)
+		a.output(tui.KindAssistantStart, "")
+		resp, err = a.lm.StreamChat(messages2, a.cfg.Context.ResponseReserve, func(tok string) {
+			a.output(tui.KindToken, tok)
+		})
+		a.output(tui.KindThinkingStop, "")
+		if err != nil {
+			a.output(tui.KindError, err.Error())
+			return nil
+		}
+		if strings.TrimSpace(resp) != "" {
+			a.history = append(a.history, client.Message{Role: "assistant", Content: resp})
+		}
 	}
- 
-	out, execErr := a.executor.Execute(call)
-	if execErr != nil {
-		out = "Error: " + execErr.Error()
-	}
-	out = tools.Truncate(out, 1500)
- 
-	preview := out
-	if len(preview) > 80 {
-		preview = preview[:80] + "..."
-	}
-	a.output(tui.KindTool, fmt.Sprintf("%s → %s", call.Name, preview))
- 
-	toolResult := map[string]string{
-		"tool_result": call.Name,
-		"output":      out,
-	}
-	b, _ := json.Marshal(toolResult)
-	a.history = append(a.history, client.Message{Role: "user", Content: string(b)})
- 
-	messages2 := a.ctxMgr.BuildMessages(a.systemText, memMsg, a.history)
- 
-	a.output(tui.KindAssistantStart, "")
- 
-	resp2, err2 := a.lm.StreamChat(messages2, a.cfg.Context.ResponseReserve, func(tok string) {
-		a.output(tui.KindToken, tok)
-	})
- 
-	a.output(tui.KindThinkingStop, "")
- 
-	if err2 != nil {
-		a.output(tui.KindError, err2.Error())
-		return nil
-	}
- 
-	a.history = append(a.history, client.Message{Role: "assistant", Content: resp2})
 	return a.memory.Save()
 }
  

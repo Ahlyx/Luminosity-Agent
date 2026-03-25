@@ -65,14 +65,14 @@ func Default() Config {
 	return Config{
 		LMStudio: LMStudioConfig{
 			BaseURL:        "http://localhost:1234",
-			Model:          "qwen3.5-4b",
+			Model:          "qwen/qwen3.5-9b",
 			TimeoutSeconds: 120,
 		},
 		Context: ContextConfig{
-			MaxTokens:       8192,
-			SystemBudget:    400,
-			MemoryBudget:    600,
-			ResponseReserve: 1024,
+			MaxTokens:       16384,
+			SystemBudget:    600,
+			MemoryBudget:    2000,
+			ResponseReserve: 1500,
 		},
 		Memory: MemoryConfig{
 			Path:          "~/.luminosity/memory.json",

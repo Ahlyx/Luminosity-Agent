@@ -29,6 +29,14 @@ func (m *ContextManager) BuildMessages(system string, memoryMsg string, history 
 		messages = append(messages, client.Message{Role: "user", Content: trimmedMemory})
 	}
 	messages = append(messages, history...)
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role == "user" {
+			msg := messages[i]
+			msg.Content += " /no_think"
+			messages[i] = msg
+			break
+		}
+	}
 	return messages
 }
 

@@ -19,10 +19,9 @@ func (t WriteNoteTool) Schema() string {
 }
 
 func (t WriteNoteTool) Execute(params map[string]string) (string, error) {
-	name := sanitizeName(params["name"])
-	content := params["content"]
+	name := sanitizeName(params["path"])
 	if name == "" {
-		return "missing parameter: name", nil
+		name = sanitizeName(params["name"]) // fallback
 	}
 
 	path, err := notePath(name)
@@ -32,7 +31,7 @@ func (t WriteNoteTool) Execute(params map[string]string) (string, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return "Error: " + err.Error(), nil
 	}
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(params["content"]), 0o644); err != nil {
 		return "Error: " + err.Error(), nil
 	}
 	return fmt.Sprintf("Note '%s' saved.", name), nil

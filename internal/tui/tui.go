@@ -325,11 +325,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		vpHeight := m.height - inputH - statusH - 4
  
 		if !m.ready {
-			m.viewport = viewport.New(m.width-4, vpHeight)
-			m.viewport.SetContent(RenderBanner(m.width - 4))
+			m.viewport = viewport.New(m.width-6, vpHeight)
+			m.viewport.SetContent(RenderBanner(m.width - 6))
 			m.ready = true
 		} else {
-			m.viewport.Width = m.width - 4
+			m.viewport.Width = m.width - 6
 			m.viewport.Height = vpHeight
 			m.viewport.SetContent(m.renderLines())
 		}

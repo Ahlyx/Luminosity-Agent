@@ -21,6 +21,10 @@ memory:
   top_k: 3
   embed_model: "text-embedding-nomic-embed-text-v1.5"
 
+  # Files to chunk on load rather than embed whole
+  # Useful for large domain knowledge files
+  chunk_on_load: []
+
 tools:
   trust_mode: false
 

@@ -42,6 +42,10 @@ func New(baseURL, model string, timeoutSeconds int) *LMStudioClient {
 	}
 }
  
+type thinking struct {
+	Type string `json:"type"`
+}
+
 type chatRequest struct {
 	Model       string    `json:"model"`
 	Messages    []Message `json:"messages"`
@@ -49,6 +53,7 @@ type chatRequest struct {
 	Temperature float64   `json:"temperature"`
 	MaxTokens   int       `json:"max_tokens"`
 	Stop        []string  `json:"stop"`
+	Thinking    *thinking `json:"thinking,omitempty"`
 }
  
 type streamChunk struct {
@@ -134,6 +139,7 @@ func (c *LMStudioClient) StreamChat(messages []Message, maxTokens int, onToken f
 		Temperature: 0.7,
 		MaxTokens:   maxTokens,
 		Stop:        []string{},
+		Thinking:    &thinking{Type: "disabled"},
 	}
 	payload, err := json.Marshal(body)
 	if err != nil {
@@ -187,11 +193,16 @@ func (c *LMStudioClient) StreamChat(messages []Message, maxTokens int, onToken f
 			continue
 		}
 		tok := chunk.Choices[0].Delta.Content
+		isReasoning := false
+		if tok == "" {
+			tok = chunk.Choices[0].Delta.ReasoningContent
+			isReasoning = true
+		}
 		if tok == "" {
 			continue
 		}
 		full.WriteString(tok)
-		if onToken != nil {
+		if onToken != nil && !isReasoning {
 			onToken(tok)
 		}
 	}
@@ -210,19 +221,23 @@ func (c *LMStudioClient) StreamChat(messages []Message, maxTokens int, onToken f
 // If the closing tag is missing (stream ended mid-block), everything from
 // the opening <think> to end-of-string is removed.
 func stripThinkBlocks(s string) string {
-	for {
-		start := strings.Index(s, "<think>")
-		if start == -1 {
-			break
-		}
-		end := strings.Index(s[start:], "</think>")
-		if end == -1 {
-			// Unclosed block — strip from <think> to end
-			s = s[:start]
-			break
-		}
-		s = s[:start] + s[start+end+len("</think>"):]
-	}
-	return strings.TrimSpace(s)
+    original := s
+    for {
+        start := strings.Index(s, "<think>")
+        if start == -1 {
+            break
+        }
+        end := strings.Index(s[start:], "</think>")
+        if end == -1 {
+            s = s[:start]
+            break
+        }
+        s = s[:start] + s[start+end+len("</think>"):]
+    }
+    s = strings.TrimSpace(s)
+    if s == "" {
+        return strings.TrimSpace(original)
+    }
+    return s
 }
 

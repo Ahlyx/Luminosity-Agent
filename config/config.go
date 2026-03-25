@@ -46,6 +46,10 @@ type MemoryConfig struct {
  
 	// TopK is how many vector search results to inject per turn (default 3)
 	TopK int `yaml:"top_k"`
+
+	// ChunkOnLoad is a list of file basenames to chunk rather than embed whole.
+	// Useful for large domain knowledge files (e.g. "security.md").
+	ChunkOnLoad []string `yaml:"chunk_on_load"`
  
 	// EmbedModel is the model name for embeddings via LM Studio
 	// Defaults to text-embedding-nomic-embed-text-v1.5

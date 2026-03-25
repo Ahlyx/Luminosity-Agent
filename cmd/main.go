@@ -33,7 +33,7 @@ func main() {
 	mem := memory.NewManager(cfg.Memory.Path, cfg.Memory.MaxFacts)
  
 	// Vector store — embeds markdown files in memory dir via nomic
-	vs := memory.NewVectorStore(cfg.Memory.Dir, lm.Embed)
+	vs := memory.NewVectorStore(cfg.Memory.Dir, lm.Embed, cfg.Memory.ChunkOnLoad)
  
 	registry := tools.NewRegistry()
 	registry.Register(builtin.WebSearchTool{
@@ -53,11 +53,12 @@ func main() {
 	})
  
 	inputCh := make(chan string, 10)
- 
+	quitCh := make(chan struct{})
+
 	m := tui.New(inputCh)
 	p := tea.NewProgram(m, tea.WithAltScreen())
- 
-	go runAgent(cfg, lm, mem, vs, registry, trustMode, inputCh, p)
+
+	go runAgent(cfg, lm, mem, vs, registry, trustMode, inputCh, p, quitCh)
  
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "TUI error: %v\n", err)
@@ -74,6 +75,7 @@ func runAgent(
 	trustMode bool,
 	inputCh <-chan string,
 	p *tea.Program,
+	quitCh chan struct{},
 ) {
 	corrupted, err := mem.Load()
 	if err != nil {
@@ -93,8 +95,13 @@ func runAgent(
  
 	a := agent.NewHeadless(cfg, lm, mem, vs, registry, trustMode, func(kind tui.MsgKind, text string) {
 		p.Send(tui.AgentMsg{Kind: kind, Text: text})
-	})
- 
+	}, quitCh)
+
+	go func() {
+		<-quitCh
+		p.Quit()
+	}()
+
 	for input := range inputCh {
 		a.Handle(input)
 	}

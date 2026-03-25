@@ -32,7 +32,6 @@ func (m *ContextManager) BuildMessages(system string, memoryMsg string, history 
 	for i := len(messages) - 1; i >= 0; i-- {
 		if messages[i].Role == "user" {
 			msg := messages[i]
-			msg.Content += " /no_think"
 			messages[i] = msg
 			break
 		}

@@ -27,9 +27,11 @@ type HeadlessAgent struct {
 	registry   *tools.Registry
 	executor   *tools.Executor
 	history    []client.Message
+	lastResp   string
 	trustMode  bool
 	systemText string
 	output     OutputFn
+	quitCh     chan struct{}
 }
  
 func NewHeadless(
@@ -40,6 +42,7 @@ func NewHeadless(
 	registry *tools.Registry,
 	trustMode bool,
 	output OutputFn,
+	quitCh chan struct{},
 ) *HeadlessAgent {
 	ctxMgr := NewContextManager(ContextConfig{
 		MaxTokens:       cfg.Context.MaxTokens,
@@ -58,6 +61,7 @@ func NewHeadless(
 		trustMode:  trustMode,
 		systemText: prompt.BuildSystemPrompt(),
 		output:     output,
+		quitCh:     quitCh,
 	}
 }
  
@@ -67,12 +71,9 @@ func (a *HeadlessAgent) Handle(input string) {
 		return
 	}
 	if strings.HasPrefix(input, "/") {
-		quit, err := a.handleSlash(input)
+		_, err := a.handleSlash(input)
 		if err != nil {
 			a.output(tui.KindError, err.Error())
-		}
-		if quit {
-			a.memory.Save()
 		}
 		return
 	}
@@ -149,7 +150,28 @@ func (a *HeadlessAgent) handleSlash(line string) (bool, error) {
 		a.output(tui.KindSystem, "Conversation and memory reset.")
 		return false, nil
  
+	case "/debug":
+		last := a.lastResp
+		if last == "" {
+			last = "(empty)"
+		}
+		if len(last) > 200 {
+			last = last[:200] + "\u2026"
+		}
+		a.output(tui.KindSystem, fmt.Sprintf(
+			"history: %d messages | vs chunks: %d | last resp len: %d | last resp preview: %s",
+			len(a.history),
+			a.vs.Count(),
+			len(a.lastResp),
+			last,
+		))
+		return false, nil
+
 	case "/quit":
+		a.memory.Save()
+		if a.quitCh != nil {
+			close(a.quitCh)
+		}
 		return true, nil
  
 	default:
@@ -196,11 +218,12 @@ func (a *HeadlessAgent) handleUserMessage(input string) error {
 	}
 	_ = fullResp
 	if strings.TrimSpace(resp) != "" {
+		a.lastResp = resp
 		a.history = append(a.history, client.Message{Role: "assistant", Content: resp})
 	}
 	a.memory.Save()
 
-	maxToolCalls := 4
+	maxToolCalls := 8
 	for i := 0; i < maxToolCalls; i++ {
 		call, ok := a.executor.FindFirstToolCall(resp)
 		if !ok {
@@ -233,27 +256,10 @@ func (a *HeadlessAgent) handleUserMessage(input string) error {
 			return nil
 		}
 		if strings.TrimSpace(resp) != "" {
+			a.lastResp = resp
 			a.history = append(a.history, client.Message{Role: "assistant", Content: resp})
 		}
 	}
-
-	// If the last response was still a tool call or empty, force a synthesis pass.
-	if _, stillTool := a.executor.FindFirstToolCall(resp); stillTool || strings.TrimSpace(resp) == "" {
-		synthHistory := append(a.history, client.Message{
-			Role:    "user",
-			Content: "Based on the tool results above, provide a concise summary of your findings.",
-		})
-		messages := a.ctxMgr.BuildMessages(a.systemText, memMsg, synthHistory)
-		a.output(tui.KindAssistantStart, "")
-		resp, err = a.lm.StreamChat(messages, a.cfg.Context.ResponseReserve, func(tok string) {
-			a.output(tui.KindToken, tok)
-		})
-		a.output(tui.KindThinkingStop, "")
-		if err == nil && strings.TrimSpace(resp) != "" {
-			a.history = append(a.history, client.Message{Role: "assistant", Content: resp})
-		}
-	}
-
 	return a.memory.Save()
 }
  

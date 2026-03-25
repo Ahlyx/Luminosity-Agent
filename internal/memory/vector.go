@@ -30,19 +30,22 @@ type Chunk struct {
  
 // VectorStore holds embedded memory chunks and provides similarity search.
 type VectorStore struct {
-	mu     sync.RWMutex
-	chunks []Chunk
-	root   string
-	embed  EmbedFunc
+	mu          sync.RWMutex
+	chunks      []Chunk
+	root        string
+	embed       EmbedFunc
+	chunkOnLoad []string
 }
  
 // NewVectorStore creates a VectorStore rooted at dir.
 // dir is the base memory directory, e.g. ~/.luminosity/memory/
 // embedFn is called to produce vectors — pass lm.Embed directly.
-func NewVectorStore(dir string, embedFn EmbedFunc) *VectorStore {
+// chunkOnLoad is a list of file basenames to chunk rather than embed whole.
+func NewVectorStore(dir string, embedFn EmbedFunc, chunkOnLoad []string) *VectorStore {
 	return &VectorStore{
-		root:  dir,
-		embed: embedFn,
+		root:        dir,
+		embed:       embedFn,
+		chunkOnLoad: chunkOnLoad,
 	}
 }
  
@@ -52,15 +55,22 @@ func NewVectorStore(dir string, embedFn EmbedFunc) *VectorStore {
 func (vs *VectorStore) Load() error {
 	vs.mu.Lock()
 	defer vs.mu.Unlock()
- 
-	// Build a map of existing chunks by path for stale detection
-	existing := make(map[string]Chunk, len(vs.chunks))
+
+	// Build a map of existing chunks by path for stale detection.
+	// Chunked files produce multiple entries per path, so we group them.
+	existingByPath := make(map[string][]Chunk, len(vs.chunks))
 	for _, c := range vs.chunks {
-		existing[c.Path] = c
+		existingByPath[c.Path] = append(existingByPath[c.Path], c)
 	}
- 
+
+	// Build lookup set of basenames to chunk on load
+	chunkSet := make(map[string]bool, len(vs.chunkOnLoad))
+	for _, name := range vs.chunkOnLoad {
+		chunkSet[filepath.Base(name)] = true
+	}
+
 	var updated []Chunk
- 
+
 	err := filepath.WalkDir(vs.root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return nil // skip unreadable entries
@@ -68,27 +78,27 @@ func (vs *VectorStore) Load() error {
 		if d.IsDir() {
 			return nil
 		}
- 
+
 		// Only process markdown files
 		ext := strings.ToLower(filepath.Ext(path))
 		if ext != ".md" && ext != ".txt" {
 			return nil
 		}
- 
+
 		info, err := d.Info()
 		if err != nil {
 			return nil
 		}
- 
-		// Check if we have a fresh cached chunk
-		if cached, ok := existing[path]; ok {
-			if !info.ModTime().After(cached.ModTime) {
-				// File unchanged — keep existing chunk
-				updated = append(updated, cached)
+
+		// Check if we have fresh cached chunks for this path
+		if cached, ok := existingByPath[path]; ok {
+			if !info.ModTime().After(cached[0].ModTime) {
+				// File unchanged — keep all existing chunks for this path
+				updated = append(updated, cached...)
 				return nil
 			}
 		}
- 
+
 		// Read file content
 		content, err := os.ReadFile(path)
 		if err != nil {
@@ -98,35 +108,49 @@ func (vs *VectorStore) Load() error {
 		if text == "" {
 			return nil
 		}
- 
-		// Embed the content
-		vec, err := vs.embed(text)
-		if err != nil {
-			// Skip files that fail to embed — don't abort the whole load
-			return nil
-		}
- 
+
 		// Compute relative name for display
 		rel, err := filepath.Rel(vs.root, path)
 		if err != nil {
 			rel = filepath.Base(path)
 		}
- 
-		updated = append(updated, Chunk{
-			Path:    path,
-			Name:    rel,
-			Content: text,
-			Vector:  vec,
-			ModTime: info.ModTime(),
-		})
- 
+
+		if chunkSet[filepath.Base(path)] {
+			// Chunk the file and embed each piece separately
+			pieces := ChunkText(text, 400, 50, rel)
+			for i := range pieces {
+				vec, err := vs.embed(pieces[i].Content)
+				if err != nil {
+					continue
+				}
+				pieces[i].Path = path
+				pieces[i].Vector = vec
+				pieces[i].ModTime = info.ModTime()
+				updated = append(updated, pieces[i])
+			}
+		} else {
+			// Embed the whole file as a single chunk
+			vec, err := vs.embed(text)
+			if err != nil {
+				// Skip files that fail to embed — don't abort the whole load
+				return nil
+			}
+			updated = append(updated, Chunk{
+				Path:    path,
+				Name:    rel,
+				Content: text,
+				Vector:  vec,
+				ModTime: info.ModTime(),
+			})
+		}
+
 		return nil
 	})
- 
+
 	if err != nil {
 		return err
 	}
- 
+
 	vs.chunks = updated
 	return nil
 }

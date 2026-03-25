@@ -37,10 +37,10 @@ Rules:
 - Wait for the tool result before continuing
 - Answer from knowledge when you can — tools are for when you actually need them
 - For research: web_search first to find URLs, web_fetch to read a specific page
-- After web_fetch, if the content is worth remembering for future queries, call save_memory with a descriptive source label
 - Your [memory] context block contains semantically relevant knowledge from past research — treat it as your knowledge base, not external data
 - If [memory] context covers the question, answer from it directly — do not call tools to re-research what you already have
-- Only search the web when the question is outside your injected memory or requires current information`
+- Only search the web when the question is outside your injected memory or requires current information
+- After web_search or web_fetch, if the content is worth remembering for future queries, call save_memory with a descriptive source label — use save_memory not write_note for research findings`
  
 func BuildSystemPrompt() string {
 	return systemPrompt

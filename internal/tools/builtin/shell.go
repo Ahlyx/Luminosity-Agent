@@ -1,12 +1,10 @@
 package builtin
 
 import (
-	"bufio"
 	"context"
 	"errors"
-	"fmt"
-	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"time"
 
@@ -30,19 +28,18 @@ func (t *ShellTool) Execute(params map[string]string) (string, error) {
 	}
 
 	if !t.TrustMode {
-		fmt.Printf("Shell command: %s\n", cmd)
-		fmt.Print("Execute? [y/N]: ")
-		reader := bufio.NewReader(os.Stdin)
-		line, _ := reader.ReadString('\n')
-		if strings.ToLower(strings.TrimSpace(line)) != "y" {
-			return "User declined execution", nil
-		}
+		return "Shell execution requires trust mode. Run Lumi with -trust flag or set tools.trust_mode: true in config.yaml", nil
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	c := exec.CommandContext(ctx, "bash", "-c", cmd)
+	var c *exec.Cmd
+	if runtime.GOOS == "windows" {
+		c = exec.CommandContext(ctx, "cmd", "/C", cmd)
+	} else {
+		c = exec.CommandContext(ctx, "bash", "-c", cmd)
+	}
 	out, err := c.CombinedOutput()
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		return "Command timed out.", nil

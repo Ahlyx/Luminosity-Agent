@@ -37,3 +37,6 @@ search:
   # Can also set BRAVE_API_KEY env var instead
   # Used as fallback if Tavily fails or rate limits
   brave_key: "BSA-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+
+reports:
+  db_path: "~/.luminosity/reports.db"

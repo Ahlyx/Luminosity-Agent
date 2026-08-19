@@ -233,7 +233,7 @@ func (a *HeadlessAgent) handleUserMessage(input string) error {
 		if execErr != nil {
 			out = "Error: " + execErr.Error()
 		}
-		out = tools.Truncate(out, 1500)
+		out = tools.Truncate(out, 8000)
 		preview := out
 		if len(preview) > 80 {
 			preview = preview[:80] + "..."

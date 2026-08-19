@@ -1,5 +1,7 @@
-# binary
-luminosity-agent
+# binaries
+/luminosity-agent
+/analyze
+*.exe
 
 # go build cache
 *.test

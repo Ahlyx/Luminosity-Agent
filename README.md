@@ -10,15 +10,17 @@ A local CLI AI agent framework in Go, built for small quantized models via LM St
 - **XML tool calling** — reliable format for small models: `<tool>`, `<query>`, `<url>`, `<path>`, `<content>`
 - **Web search** — Tavily (primary) with Brave Search fallback
 - **Web fetch** — fetches and strips HTML from any URL, decodes HTML entities
-- **Shell tool** — runs bash commands with optional confirmation prompt
+- **Shell tool** — runs shell commands (bash on Linux/macOS, cmd on Windows), gated behind trust mode
 - **Note tools** — persistent read/write note storage in `~/.luminosity/notes/`
+- **Read-file tool** — reads any file from an absolute path on the local filesystem
+- **CSV analyzer + report tools** — `cmd/analyze` ingests a CSV into SQLite and produces a findings JSON; `report_store`/`report_read` persist and recall those findings across sessions
 - **Streaming TUI** — live token streaming via Charm (bubbletea + lipgloss), think block stripping
 - **Context budgeting** — token budget management with auto-summarization of old history
 - **Legacy flat memory** — `/remember` command for manual fact curation via LLM merge
 
 ## Requirements
 
-- Go 1.24+
+- Go 1.25+
 - LM Studio running with:
   - A chat model loaded (e.g. `qwen3.5-4b` or `qwen3.5-9b`)
   - `nomic-embed-text-v1.5` loaded for vector memory embeddings
@@ -86,8 +88,25 @@ web_fetch      Fetch a URL and return plain text
 save_memory    Chunk and embed content into vector memory
 write_note     Write a note to ~/.luminosity/notes/
 read_note      Read a note from ~/.luminosity/notes/
-shell          Run a bash command
+read_file      Read any file from an absolute path
+shell          Run a shell command (requires trust mode)
+report_store   Save an enriched data report (headline + summary) to SQLite
+report_read    Recall a stored report by name, or "list" to see all
 ```
+
+## CSV Analysis
+
+`cmd/analyze` ingests a CSV into a local SQLite database and produces a findings
+JSON (totals, top recipients, concentration, anomalies, temporal trend, and any
+`--focus` term matches):
+
+```bash
+go run ./cmd/analyze --csv path/to/data.csv --focus "term1,term2"
+```
+
+The agent is prompted to run this via the `shell` tool, then read the resulting
+findings JSON with `read_file` and synthesize a summary — see `report_store` /
+`report_read` above for persisting that summary across sessions.
 
 **Tool call format** (XML, one tool per response):
 ```
@@ -125,6 +144,7 @@ shell          Run a bash command
 ## Architecture
 ```
 cmd/main.go                     — entrypoint, wires all components
+cmd/analyze/                    — standalone CSV -> SQLite -> findings JSON analyzer
 config/config.go                — YAML config loader with env var overrides
 internal/
   agent/
@@ -148,7 +168,34 @@ internal/
       save_memory.go            — RAG ingestion with deduplication
       write_note.go             — note persistence
       read_note.go              — note retrieval
+      read_file.go              — arbitrary absolute-path file reads
+      report_store.go           — persist analyzer findings to SQLite
+      report_read.go            — recall persisted findings
       shell.go                  — shell execution with trust mode
   tui/
     tui.go                      — Charm TUI: streaming, tool blocks, banner, viewport
 ```
+
+## Current state
+
+Dormant since 2026-03. Core agent loop, vector memory, tool chaining, and the
+streaming TUI all work and have been used for real. The CSV analyzer
+(`cmd/analyze`) and the `read_file`/`report_store`/`report_read` tools were
+finished but never committed until this push-readiness pass — they build and
+run, but haven't seen as much real-world use as the rest of the tool set.
+
+Known issues, not fixed this session:
+
+- No automated tests (`*_test.go` files exist for the TUI/prompt only; the
+  agent loop, vector store, and memory manager are untested).
+- No CI configuration.
+- `config.yaml.example`'s `reports.db_path` key is not read by `config.go` —
+  `cmd/main.go` hardcodes the reports DB path via `userHome()` instead. The
+  example key doesn't currently do anything; either wire it up or remove it
+  in a future session.
+- A stray duplicate clone of this repo (own `.git`, identical history, same
+  remote, no unique commits) previously sat at `Luminosity-Agent/` inside this
+  directory, and a literal `~` directory (leftover from a shell that didn't
+  expand `~/.luminosity/...`, likely from running the setup commands below on
+  Windows PowerShell) sat at the repo root — both removed during this
+  push-readiness pass; neither was ever tracked by git.

@@ -25,12 +25,23 @@ You have tools. Use them by outputting XML tags on their own lines:
 <tool>read_note</tool>
 <path>notes/example.md</path>
 
+<tool>read_file</tool>
+<path>/absolute/path/to/file.json</path>
+
 <tool>shell</tool>
 <command>ls -la</command>
 
 <tool>save_memory</tool>
 <path>source-label</path>
 <content>text to remember</content>
+
+<tool>report_store</tool>
+<path>report-name-slug</path>
+<content>HEADLINE: one line headline
+SUMMARY: full analysis text</content>
+
+<tool>report_read</tool>
+<path>report-name-or-list</path>
 
 Rules:
 - One tool per response only
@@ -40,7 +51,13 @@ Rules:
 - Your [memory] context block contains semantically relevant knowledge from past research — treat it as your knowledge base, not external data
 - If [memory] context covers the question, answer from it directly — do not call tools to re-research what you already have
 - Only search the web when the question is outside your injected memory or requires current information
-- After web_search or web_fetch, if the content is worth remembering for future queries, call save_memory with a descriptive source label — use save_memory not write_note for research findings`
+- After web_search or web_fetch, if the content is worth remembering for future queries, call save_memory with a descriptive source label — use save_memory not write_note for research findings
+- After analyzing a CSV and synthesizing findings, always offer to store the report with report_store
+- When storing a report, format content with HEADLINE: on the first line and SUMMARY: on the second line
+- Use report_read with path=list to check existing reports before creating duplicates
+- To analyze a CSV file run the analyzer binary via shell: go run ./cmd/analyze --csv 'path' --focus 'terms' then read the findings JSON it produces
+- To read a findings JSON file use the read_file tool with the exact absolute path printed by the analyzer — do NOT use read_note for findings JSON files
+- When asked to summarize findings or analysis results, use read_file to read the JSON file then synthesize the contents into a human readable summary covering: total spend, top recipients, concentration, anomalies, temporal trend, and focus term findings`
  
 func BuildSystemPrompt() string {
 	return systemPrompt

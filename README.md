@@ -13,7 +13,7 @@ A local CLI AI agent framework in Go, built for small quantized models via LM St
 - **Shell tool** — runs shell commands (bash on Linux/macOS, cmd on Windows), gated behind trust mode
 - **Note tools** — persistent read/write note storage in `~/.luminosity/notes/`
 - **Read-file tool** — reads any file from an absolute path on the local filesystem
-- **CSV analyzer + report tools** — `cmd/analyze` ingests a CSV into SQLite and produces a findings JSON; `report_store`/`report_read` persist and recall those findings across sessions
+- **CSV analyzer + report tools** — `cmd/analyze` queries a CSV via the DuckDB CLI and produces a findings JSON; `report_store`/`report_read` persist and recall those findings across sessions in SQLite
 - **Streaming TUI** — live token streaming via Charm (bubbletea + lipgloss), think block stripping
 - **Context budgeting** — token budget management with auto-summarization of old history
 - **Legacy flat memory** — `/remember` command for manual fact curation via LLM merge
@@ -26,6 +26,9 @@ A local CLI AI agent framework in Go, built for small quantized models via LM St
   - `nomic-embed-text-v1.5` loaded for vector memory embeddings
 - Tavily API key (free tier at tavily.com) for web search
 - Brave Search API key (optional fallback)
+- The [DuckDB CLI](https://duckdb.org/docs/installation/) on `PATH`, named
+  `duckdb` — required for `cmd/analyze` (it shells out to `duckdb -csv -c`
+  rather than using a Go DuckDB driver). Not required for the main agent.
 
 ## Setup
 ```bash
@@ -96,9 +99,10 @@ report_read    Recall a stored report by name, or "list" to see all
 
 ## CSV Analysis
 
-`cmd/analyze` ingests a CSV into a local SQLite database and produces a findings
-JSON (totals, top recipients, concentration, anomalies, temporal trend, and any
-`--focus` term matches):
+`cmd/analyze` queries a CSV via the DuckDB CLI (schema detection, stats,
+recipient/temporal breakdowns) and produces a findings JSON (totals, top
+recipients, concentration, anomalies, temporal trend, and any `--focus` term
+matches) — requires `duckdb` on `PATH`, see Requirements above:
 
 ```bash
 go run ./cmd/analyze --csv path/to/data.csv --focus "term1,term2"
@@ -144,7 +148,7 @@ findings JSON with `read_file` and synthesize a summary — see `report_store` /
 ## Architecture
 ```
 cmd/main.go                     — entrypoint, wires all components
-cmd/analyze/                    — standalone CSV -> SQLite -> findings JSON analyzer
+cmd/analyze/                    — standalone CSV -> DuckDB CLI -> findings JSON analyzer
 config/config.go                — YAML config loader with env var overrides
 internal/
   agent/
@@ -181,13 +185,21 @@ internal/
 Dormant since 2026-03. Core agent loop, vector memory, tool chaining, and the
 streaming TUI all work and have been used for real. The CSV analyzer
 (`cmd/analyze`) and the `read_file`/`report_store`/`report_read` tools were
-finished but never committed until this push-readiness pass — they build and
-run, but haven't seen as much real-world use as the rest of the tool set.
+finished but never committed until this push-readiness pass.
+
+Verified for real this session, against a live LM Studio server
+(`qwen3.6-35b-a3b`) and the actual DuckDB CLI: the `internal/client`
+streaming chat path round-trips a real request/response with the running
+model, and `cmd/analyze` was run end-to-end against a synthetic CSV — schema
+detection, all five query stages, and the findings JSON's arithmetic
+(recipient totals, concentration percentages) were checked by hand and are
+correct. The full TUI itself couldn't be driven headlessly (bubbletea needs a
+real terminal), so the agent loop's tool-calling behavior through the TUI
+specifically wasn't exercised this session, only its underlying pieces.
 
 Known issues, not fixed this session:
 
-- No automated tests (`*_test.go` files exist for the TUI/prompt only; the
-  agent loop, vector store, and memory manager are untested).
+- No automated tests at all — zero `*_test.go` files anywhere in the repo.
 - No CI configuration.
 - `config.yaml.example`'s `reports.db_path` key is not read by `config.go` —
   `cmd/main.go` hardcodes the reports DB path via `userHome()` instead. The
